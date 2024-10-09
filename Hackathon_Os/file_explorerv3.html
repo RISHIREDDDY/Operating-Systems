@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Explorer</title>
+    <style>
+        /* Existing styles remain unchanged */
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(to bottom, #add8e6, #e0f7fa);
+            color: #333;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+        }
+        .container {
+            margin: 20px auto;
+            max-width: 600px;
+            display: none;
+        }
+        #form-container, #login-container {
+            margin: 20px auto;
+            max-width: 600px;
+        }
+        label {
+            display: block;
+            margin: 10px 0 5px;
+        }
+        input[type="text"], input[type="number"], input[type="password"], select {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0 20px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #visualization {
+            display: flex;
+            flex-direction: column;
+            margin-top: 20px;
+        }
+        .folder, .file {
+            margin: 5px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+            cursor: pointer;
+        }
+        .folder {
+            background-color: #ffeb3b;
+        }
+        .file.selected {
+            background-color: #d3f9d8;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background: #f3f3f3;
+            border-radius: 5px;
+            overflow: hidden;
+            display: none;
+        }
+        .progress-bar {
+            height: 100%;
+            width: 0;
+            background: #3498db;
+            transition: width 0.2s ease;
+        }
+        .file-info {
+            display: flex;
+            justify-content: space-between;
+        }
+        .back-arrow {
+            font-size: 24px;
+            cursor: pointer;
+            color: #3498db;
+            margin-bottom: 10px;
+        }
+        .nested {
+            margin-left: 20px;
+            display: none; /* Hide nested folders by default */
+        }
+        /* New CSS for metrics and performance section */
+        #performance-metrics {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f1f1f1;
+            border-radius: 10px;
+        }
+        .metric {
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        .fragmentation-bar {
+            width: 100%;
+            background-color: #ddd;
+            height: 20px;
+            border-radius: 5px;
+            position: relative;
+            margin-top: 10px;
+        }
+        .fragmentation-fill {
+            height: 100%;
+            width: 0;
+            background-color: #ff6b6b;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>File Explorer</h1>
+
+<div id="login-container">
+    <h2>Login</h2>
+    <label for="username">Username:</label>
+    <input type="text" id="username" placeholder="Enter username">
+
+    <label for="password">Password:</label>
+    <input type="password" id="password" placeholder="Enter password">
+
+    <button onclick="login()">Login</button>
+</div>
+
+<div class="container" id="form-container">
+    <div class="back-arrow" onclick="goHome()">← Back to Home</div>
+    
+    <label for="folderSelect">Select Folder:</label>
+    <select id="folderSelect"></select>
+
+    <label for="fileName">File Name:</label>
+    <input type="text" id="fileName" placeholder="Enter file name">
+
+    <label for="fileSize">File Size:</label>
+    <input type="number" id="fileSize" placeholder="Enter file size in MB">
+
+    <label for="sizeUnit">Size Unit:</label>
+    <select id="sizeUnit">
+        <option value="MB">MB</option>
+        <option value="GB">GB</option>
+    </select>
+
+    <button onclick="createFile()">Create File</button>
+    <button onclick="deleteSelectedFiles()">Delete Selected Files</button>
+    <button onclick="createFolder()">Create New Folder</button>
+</div>
+
+<div id="loading" class="loading">Loading...</div>
+<div class="progress" id="progress">
+    <div class="progress-bar" id="progressBar"></div>
+</div>
+
+<div id="visualization"></div>
+
+<!-- New Fragmentation and Performance Section -->
+<div id="performance-metrics">
+    <h3>Performance Metrics</h3>
+    <div class="metric">
+        Fragmentation Level: <span id="fragmentation-level">0%</span>
+        <div class="fragmentation-bar">
+            <div class="fragmentation-fill" id="fragmentation-fill"></div>
+        </div>
+    </div>
+    <div class="metric">Total Files: <span id="total-files">0</span></div>
+    <div class="metric">Total Folders: <span id="total-folders">0</span></div>
+</div>
+
+<script>
+    const storage = {
+        "root": {
+            "folders": {
+                "Files": { folders: {}, files: {} },
+                "Documents": { folders: {}, files: {} },
+                "Movies": { folders: {}, files: {} },
+                "Photos": { folders: {}, files: {} },
+                "Drives": { folders: {}, files: {} },
+            },
+            "files": {}
+        }
+    };
+    let currentFolder = storage.root;
+    const visualization = document.getElementById("visualization");
+    const folderSelect = document.getElementById("folderSelect");
+    let loginAttempts = 0;
+
+    function updateVisualization() {
+        visualization.innerHTML = ""; // Clear previous visualization
+        folderSelect.innerHTML = ""; // Clear folder selection options
+
+        const folderDiv = document.createElement("div");
+        folderDiv.innerHTML = "<strong>Folders:</strong>";
+        visualization.appendChild(folderDiv);
+        
+        // Show folders and populate the folder selection
+        for (let folderName in currentFolder.folders) {
+            const folderDiv = document.createElement("div");
+            folderDiv.classList.add("folder");
+            folderDiv.textContent = folderName;
+            folderDiv.onclick = () => navigateToFolder(folderName);
+            visualization.appendChild(folderDiv);
+            
+            // Add to folder selection dropdown
+            const option = document.createElement("option");
+            option.value = folderName;
+            option.textContent = folderName;
+            folderSelect.appendChild(option);
+        }
+
+        const fileDiv = document.createElement("div");
+        fileDiv.innerHTML = "<strong>Files:</strong>";
+        visualization.appendChild(fileDiv);
+        
+        // Show files
+        for (let fileName in currentFolder.files) {
+            const fileSize = currentFolder.files[fileName];
+            const fileElement = document.createElement("div");
+            fileElement.classList.add("file");
+            fileElement.innerHTML = `<div class="file-info">${fileName} <span>(${fileSize} MB)</span></div>`;
+            fileElement.onclick = () => toggleFileSelection(fileElement, fileName);
+            fileDiv.appendChild(fileElement);
+        }
+
+        updateMetrics();
+    }
+
+    function updateMetrics() {
+        const totalFiles = Object.keys(currentFolder.files).length;
+        const totalFolders = Object.keys(currentFolder.folders).length;
+        document.getElementById('total-files').textContent = totalFiles;
+        document.getElementById('total-folders').textContent = totalFolders;
+
+        // Calculate Fragmentation Level
+        let fragmentationLevel = totalFiles > 0 ? (Math.random() * 50 + 10).toFixed(2) : 0; // Randomized for simulation
+        document.getElementById('fragmentation-level').textContent = `${fragmentationLevel}%`;
+
+        // Update fragmentation bar
+        document.getElementById('fragmentation-fill').style.width = `${fragmentationLevel}%`;
+    }
+
+    function navigateToFolder(folderName) {
+        currentFolder = currentFolder.folders[folderName]; // Change current folder
+        updateVisualization(); // Update visualization to show contents of the new folder
+    }
+
+    function toggleFileSelection(fileElement, fileName) {
+        fileElement.classList.toggle("selected");
+    }
+
+    function createFile() {
+        const fileName = document.getElementById("fileName").value;
+        let fileSize = parseInt(document.getElementById("fileSize").value);
+        const sizeUnit = document.getElementById("sizeUnit").value;
+        const selectedFolderName = folderSelect.value;
+
+        if (sizeUnit === "GB") {
+            fileSize *= 1000; // Convert GB to MB
+        }
+
+        if (!fileName || isNaN(fileSize) || fileSize <= 0) {
+            alert("Please enter valid inputs!");
+            return;
+        }
+
+        const loading = document.getElementById("loading");
+        const progress = document.getElementById("progress");
+        const progressBar = document.getElementById("progressBar");
+
+        loading.style.display = "block";
+        progress.style.display = "block";
+
+        let progressValue = 0;
+        const interval = setInterval(() => {
+            progressValue += 10;
+            progressBar.style.width = progressValue + "%";
+            if (progressValue >= 100) {
+                clearInterval(interval);
+                loading.style.display = "none";
+                progress.style.display = "none";
+
+                // Save file to the selected folder
+                if (!currentFolder.folders[selectedFolderName]) {
+                    alert("Selected folder does not exist!");
+                    return;
+                }
+                
+                currentFolder.folders[selectedFolderName].files[fileName] = fileSize;
+                alert("File created successfully!");
+                updateVisualization();
+            }
+        }, 300);
+    }
+
+    function deleteSelectedFiles() {
+        const selectedFiles = document.querySelectorAll(".file.selected");
+        selectedFiles.forEach(fileElement => {
+            const fileName = fileElement.querySelector(".file-info").textContent.split(" (")[0];
+            delete currentFolder.files[fileName]; // Delete the file
+        });
+        alert("Selected files deleted successfully!");
+        updateVisualization();
+    }
+
+    function createFolder() {
+        const folderName = prompt("Enter folder name:");
+        if (!folderName) {
+            alert("Folder name cannot be empty!");
+            return;
+        }
+
+        if (currentFolder.folders[folderName]) {
+            alert("Folder already exists!");
+            return;
+        }
+
+        currentFolder.folders[folderName] = { folders: {}, files: {} }; // Create new folder
+        updateVisualization();
+    }
+
+    function goHome() {
+        currentFolder = storage.root; // Navigate back to root
+        updateVisualization();
+    }
+
+    function login() {
+        const username = document.getElementById("username").value;
+        const password = document.getElementById("password").value;
+
+        if (username === "rishi" && password === "3423") {
+            document.getElementById("login-container").style.display = "none";
+            document.getElementById("form-container").style.display = "block";
+            updateVisualization();
+        } else {
+            loginAttempts++;
+            alert("Invalid credentials! Attempt: " + loginAttempts);
+            if (loginAttempts > 3) {
+                alert("Too many failed attempts! Check your email for further instructions.");
+                // Simulate sending an email alert
+                console.log(`Sending email to ${document.getElementById("username").value}...`);
+            }
+        }
+    }
+</script>
+
+</body>
+</html>
